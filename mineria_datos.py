@@ -14,7 +14,7 @@ import base64
 
 # Configuración inicial de Streamlit
 st.set_page_config(page_title="Simulador Minería de Datos", layout="wide")
-st.title("🧠 Simulador de Data mining")
+st.title("🧠 Simulador de Data Mining")
 st.markdown("### Aplicando técnicas de minería de datos a un e-commerce")
 
 # --- Función para descargar DataFrame como Excel ---
