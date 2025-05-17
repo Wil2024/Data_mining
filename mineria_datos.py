@@ -12,7 +12,7 @@ import seaborn as sns
 from io import BytesIO
 import base64
 
-# Configuración inicial de Streamlit
+# Configuración inicial
 st.set_page_config(page_title="Minería de Datos BotiCura", layout="wide")
 st.title("🧠 Minería de Datos: Clustering, Asociación y Sentimiento")
 st.markdown("""
@@ -55,24 +55,13 @@ if uploaded_transacciones and uploaded_reseñas:
 
         st.success("✅ Archivos cargados correctamente")
 
-        # Mostrar datos
-        st.subheader("📊 Vista Previa de Datos")
-        col1, col2 = st.columns(2)
-        with col1:
-            st.write("Transacciones:")
-            st.dataframe(df_transacciones.head())
-        with col2:
-            st.write("Reseñas:")
-            st.dataframe(df_reseñas.head())
-
-        # --- Sección 1: Clustering de Clientes ---
+        # --- Sección 1: Segmentación de Clientes (RFM) ---
         st.header("📌 Segmentación de Clientes (Clustering)")
         if st.checkbox("Ejecutar Clustering", key="clustering_checkbox"):
-            # RFM - Recency, Frequency, Monetary
-            rfm = df_transacciones.groupby("customer_id").agg(
-                Recency=("order_date", lambda x: (pd.to_datetime("2025-05-01") - pd.to_datetime(x.max())).days),
-                Frequency=("order_id", "count"),
-                Monetary=("total_amount", "sum")
+            rfm = df_transacciones.groupby('customer_id').agg(
+                Recency=('order_date', lambda x: (pd.to_datetime("2025-05-01") - pd.to_datetime(x.max())).days),
+                Frequency=('order_id', 'count'),
+                Monetary=('total_amount', 'sum')
             ).reset_index()
 
             # Filtrar clientes recurrentes
@@ -82,17 +71,14 @@ if uploaded_transacciones and uploaded_reseñas:
             from sklearn.preprocessing import StandardScaler
             X_scaled = StandardScaler().fit_transform(X)
 
-            # Selección de número de clusters
             max_clusters = min(10, len(X))
             n_clusters = st.slider("Seleccionar número de clusters:", 2, max_clusters, 4)
 
             kmeans = KMeans(n_clusters=n_clusters, random_state=42)
             rfm['cluster'] = kmeans.fit_predict(X_scaled)
 
-            # Graficar clústeres
             fig, ax = plt.subplots()
             sns.scatterplot(data=rfm, x='Frequency', y='Monetary', hue='cluster', palette='viridis', alpha=0.7, ax=ax)
-            ax.set_title("Segmentación de Clientes por Frecuencia y Gasto")
             st.pyplot(fig)
 
             # Tabla resumen de clústeres
@@ -104,13 +90,13 @@ if uploaded_transacciones and uploaded_reseñas:
             st.write("📊 Resumen por Cluster:")
             st.dataframe(cluster_summary.style.highlight_max(axis=0))
 
-            # Descargar segmentación
-            st.markdown(get_download_link(rfm, "clientes_segmentados.xlsx"), unsafe_allow_html=True)
-
         # --- Sección 2: Reglas de Asociación ---
         st.header("🔗 Reglas de Asociación")
         if st.checkbox("Ejecutar reglas de asociación", key="rules_checkbox"):
-            basket = df_transacciones.groupby(["order_id", "product_name"])["quantity"].sum().unstack().fillna(0).applymap(lambda x: 1 if x > 0 else 0)
+            basket = df_transacciones.groupby(["order_id", "product_name"])["quantity"].sum().unstack().fillna(0)
+
+            # ✅ Usamos .map() en lugar de applymap()
+            basket = basket.map(lambda x: True if x > 0 else False)
 
             st.write("Matriz de productos comprados juntos (primeras filas):")
             st.dataframe(basket.head())
@@ -127,7 +113,6 @@ if uploaded_transacciones and uploaded_reseñas:
                 st.dataframe(rules.sort_values(by="confidence", ascending=False)[[
                     "antecedents", "consequents", "support", "confidence", "lift"
                 ]].head(10))
-
                 st.markdown(get_download_link(rules, "reglas_asociacion.xlsx"), unsafe_allow_html=True)
             else:
                 st.warning("No se encontraron conjuntos frecuentes con este soporte.")
@@ -154,11 +139,3 @@ if uploaded_transacciones and uploaded_reseñas:
         st.error(f"Error al procesar los datos: {str(e)}")
 else:
     st.info("Por favor, suba ambos archivos Excel: transacciones y reseñas.")
-
-# Footer
-st.markdown("""
-<div style='text-align: center; font-size: 12px; margin-top: 50px; color: #666;'>
-    ©️ 2025 Diseñado por <b>Wilton Torvisco</b> | 
-    Todos los derechos reservados.
-</div>
-""", unsafe_allow_html=True)
