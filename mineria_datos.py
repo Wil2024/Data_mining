@@ -13,180 +13,152 @@ from io import BytesIO
 import base64
 
 # Configuración inicial de Streamlit
-st.set_page_config(page_title="Simulador Minería de Datos", layout="wide")
-st.title("🧠 Simulador de Data Mining")
-st.markdown("### Aplicando técnicas de minería de datos a un e-commerce")
+st.set_page_config(page_title="Minería de Datos BotiCura", layout="wide")
+st.title("🧠 Minería de Datos: Clustering, Asociación y Sentimiento")
+st.markdown("""
+Este simulador permite explorar técnicas avanzadas de minería de datos aplicadas al sector salud:
+- **Clustering de clientes** por frecuencia y gasto
+- **Reglas de asociación** entre productos
+- **Análisis de sentimiento** en reseñas
 
-# --- Función para descargar DataFrame como Excel ---
-def to_excel(df):
-    output = BytesIO()
-    with pd.ExcelWriter(output, engine="openpyxl") as writer:
-        df.to_excel(writer, index=False, sheet_name="Sheet1")
-    return output.getvalue()
+Usa estos insights para tomar decisiones estratégicas en BotiCura.
+""")
 
+# Función para descargar resultados
 def get_download_link(df, filename):
-    excel_data = to_excel(df)
-    b64 = base64.b64encode(excel_data).decode()  # Codificar a base64
-    return f'<a href="data:application/vnd.openxmlformats-officedocument.spreadsheetml.sheet;base64,{b64}" download="{filename}">Descargar {filename}</a>'
+    towrite = BytesIO()
+    df.to_excel(towrite, index=False, engine='openpyxl')
+    towrite.seek(0)
+    b64 = base64.b64encode(towrite.read()).decode()
+    return f'<a href="data:application/vnd.openxmlformats-officedocument.spreadsheetml.sheet;base64,{b64}" download="{filename}">⬇️ Descargar {filename}</a>'
 
-
-
-
-# --- Carga de Datasets ---
+# Carga de archivos
 st.sidebar.header("📁 Cargar Archivos")
 uploaded_transacciones = st.sidebar.file_uploader("Sube el archivo de transacciones (Excel)", type=["xlsx"])
 uploaded_reseñas = st.sidebar.file_uploader("Sube el archivo de reseñas (Excel)", type=["xlsx"])
 
-# Función para cargar archivos
-def load_data(transacciones_file, reseñas_file):
-    try:
-        df_transacciones = pd.read_excel(transacciones_file)
-        df_reseñas = pd.read_excel(reseñas_file)
-        return df_transacciones, df_reseñas
-    except Exception as e:
-        st.error(f"Error al cargar los archivos: {e}")
-        return None, None
-
 if uploaded_transacciones and uploaded_reseñas:
-    df_transacciones, df_reseñas = load_data(uploaded_transacciones, uploaded_reseñas)
+    try:
+        # Cargar datasets
+        df_transacciones = pd.read_excel(uploaded_transacciones)
+        df_reseñas = pd.read_excel(uploaded_reseñas)
 
-    # Mostrar vista previa de los datasets
-    st.subheader("📊 Vista Previa de Datos")
-    col1, col2 = st.columns(2)
-    with col1:
-        st.write("Transacciones:")
-        st.dataframe(df_transacciones.head())
-    with col2:
-        st.write("Reseñas:")
-        st.dataframe(df_reseñas.head())
+        # Validar columnas esenciales
+        required_columns = ['order_id', 'customer_id', 'product_name', 'Distrito', 'Canal_Venta', 'order_date', 'total_amount']
+        for col in required_columns:
+            if col not in df_transacciones.columns:
+                st.error(f"El archivo debe contener la columna '{col}'.")
+                st.stop()
 
-    # --- Sección 1: Segmentación de Clientes (K-means) ---
-    st.header("📌 Segmentación de Clientes (Clustering)")
-    if st.checkbox("Ejecutar segmentación", key="clustering_checkbox"):
-        customer_features = df_transacciones.groupby("customer_id").agg({
-            "total_amount": ["sum", "mean"],
-            "order_id": "count",
-            "category": lambda x: len(set(x))
-        }).reset_index()
-        customer_features.columns = ["customer_id", "total_spent", "avg_spent", "order_count", "unique_categories"]
-        
-        X = customer_features[["total_spent", "avg_spent", "order_count", "unique_categories"]]
-        X = (X - X.mean()) / X.std()
+        if 'review_text' not in df_reseñas.columns:
+            st.warning("No se encontró la columna 'review_text' en las reseñas.")
 
-        n_clusters = st.slider("Número de clústeres:", 2, 10, 3, key="kmeans_slider")
-        kmeans = KMeans(n_clusters=n_clusters, random_state=42)
-        customer_features["cluster"] = kmeans.fit_predict(X)
+        st.success("✅ Archivos cargados correctamente")
 
-        # Visualización
-        fig, ax = plt.subplots(figsize=(8, 5))
-        sns.scatterplot(data=customer_features, x="total_spent", y="order_count", hue="cluster", palette="deep", ax=ax)
-        plt.title("Segmentación de Clientes")
-        st.pyplot(fig)
+        # Mostrar datos
+        st.subheader("📊 Vista Previa de Datos")
+        col1, col2 = st.columns(2)
+        with col1:
+            st.write("Transacciones:")
+            st.dataframe(df_transacciones.head())
+        with col2:
+            st.write("Reseñas:")
+            st.dataframe(df_reseñas.head())
 
-        cluster_summary = customer_features.groupby("cluster").agg({
-            "total_spent": "mean",
-            "avg_spent": "mean",
-            "order_count": "mean",
-            "unique_categories": "mean"
-        }).reset_index()
-        st.write("Resumen por Clúster:")
-        st.dataframe(cluster_summary)
+        # --- Sección 1: Clustering de Clientes ---
+        st.header("📌 Segmentación de Clientes (Clustering)")
+        if st.checkbox("Ejecutar Clustering", key="clustering_checkbox"):
+            # RFM - Recency, Frequency, Monetary
+            rfm = df_transacciones.groupby("customer_id").agg(
+                Recency=("order_date", lambda x: (pd.to_datetime("2025-05-01") - pd.to_datetime(x.max())).days),
+                Frequency=("order_id", "count"),
+                Monetary=("total_amount", "sum")
+            ).reset_index()
 
-        # Descargable
-        st.markdown(get_download_link(customer_features, "segmentacion_clientes.xlsx"), unsafe_allow_html=True)
+            # Filtrar clientes recurrentes
+            rfm = rfm[(rfm['Frequency'] > 1) & (rfm['Monetary'] > 30)]
 
+            X = rfm[['Frequency', 'Monetary']].copy()
+            from sklearn.preprocessing import StandardScaler
+            X_scaled = StandardScaler().fit_transform(X)
 
+            # Selección de número de clusters
+            max_clusters = min(10, len(X))
+            n_clusters = st.slider("Seleccionar número de clusters:", 2, max_clusters, 4)
 
+            kmeans = KMeans(n_clusters=n_clusters, random_state=42)
+            rfm['cluster'] = kmeans.fit_predict(X_scaled)
 
+            # Graficar clústeres
+            fig, ax = plt.subplots()
+            sns.scatterplot(data=rfm, x='Frequency', y='Monetary', hue='cluster', palette='viridis', alpha=0.7, ax=ax)
+            ax.set_title("Segmentación de Clientes por Frecuencia y Gasto")
+            st.pyplot(fig)
 
-    # --- Sección 2: Clasificación de Reseñas (Naive Bayes) ---
-    st.header("📝 Análisis de Sentimiento en Reseñas")
-    if st.checkbox("Ejecutar clasificación", key="sentiment_checkbox"):
-        X_text = df_reseñas["review_text"]
-        y = df_reseñas["sentiment"]
+            # Tabla resumen de clústeres
+            cluster_summary = rfm.groupby("cluster").agg(
+                Clientes=("customer_id", "count"),
+                Promedio_Frecuencia=("Frequency", "mean"),
+                Promedio_Monto=("Monetary", "mean")
+            ).reset_index()
+            st.write("📊 Resumen por Cluster:")
+            st.dataframe(cluster_summary.style.highlight_max(axis=0))
 
-        vectorizer = TfidfVectorizer(max_features=1000)
-        X_vectorized = vectorizer.fit_transform(X_text)
+            # Descargar segmentación
+            st.markdown(get_download_link(rfm, "clientes_segmentados.xlsx"), unsafe_allow_html=True)
 
-        X_train, X_test, y_train, y_test = train_test_split(X_vectorized, y, test_size=0.2, random_state=42)
-        nb = MultinomialNB()
-        nb.fit(X_train, y_train)
+        # --- Sección 2: Reglas de Asociación ---
+        st.header("🔗 Reglas de Asociación")
+        if st.checkbox("Ejecutar reglas de asociación", key="rules_checkbox"):
+            basket = df_transacciones.groupby(["order_id", "product_name"])["quantity"].sum().unstack().fillna(0).applymap(lambda x: 1 if x > 0 else 0)
 
-        y_pred = nb.predict(X_test)
-        st.write("Reporte de Clasificación:")
-        st.text(classification_report(y_test, y_pred))
+            st.write("Matriz de productos comprados juntos (primeras filas):")
+            st.dataframe(basket.head())
 
-        new_review = st.text_input("Ingresa una nueva reseña para analizar:", key="review_input")
-        if new_review:
-            new_review_vec = vectorizer.transform([new_review])
-            prediction = nb.predict(new_review_vec)[0]
-            st.success(f"Sentimiento predicho: **{prediction}**")
-
-        df_reseñas["predicted_sentiment"] = nb.predict(vectorizer.transform(df_reseñas["review_text"]))
-        st.markdown(get_download_link(df_reseñas, "clasificacion_reseñas.xlsx"), unsafe_allow_html=True)
-
-    # --- Sección 3: Reglas de Asociación (Apriori) ---
-    st.header("🔗 Análisis de Patrones de Compra")
-    if st.checkbox("Ejecutar reglas de asociación", key="rules_checkbox"):
-        basket = df_transacciones.groupby(["order_id", "product_name"])["quantity"].sum().unstack().fillna(0).applymap(lambda x: 1 if x > 0 else 0)
-        st.write("Matriz de productos comprados juntos (primeras filas):")
-        st.dataframe(basket.head())
-
-        min_support = st.slider("Soporte mínimo:", 0.0001, 0.05, 0.001, step=0.0001, key="apriori_slider")
-        try:
+            min_support = st.slider("Soporte mínimo:", 0.0001, 0.05, 0.001, step=0.0001, key="apriori_slider")
             frequent_itemsets = apriori(basket, min_support=min_support, use_colnames=True)
-            if not frequent_itemsets.empty:
-                st.write(f"Conjuntos frecuentes encontrados ({len(frequent_itemsets)}):")
-                st.dataframe(frequent_itemsets.head())
 
+            if not frequent_itemsets.empty:
                 rules = association_rules(frequent_itemsets, metric="lift", min_threshold=1)
                 rules["antecedents"] = rules["antecedents"].apply(lambda x: ", ".join(list(x)))
                 rules["consequents"] = rules["consequents"].apply(lambda x: ", ".join(list(x)))
 
-                st.write("Reglas de Asociación:")
-                st.dataframe(rules.sort_values(by="confidence", ascending=False))
+                st.write("Reglas de Asociación Encontradas:")
+                st.dataframe(rules.sort_values(by="confidence", ascending=False)[[
+                    "antecedents", "consequents", "support", "confidence", "lift"
+                ]].head(10))
 
                 st.markdown(get_download_link(rules, "reglas_asociacion.xlsx"), unsafe_allow_html=True)
             else:
-                st.warning("No se encontraron conjuntos frecuentes.")
-        except Exception as e:
-            st.error(f"Error al generar las reglas: {e}")
+                st.warning("No se encontraron conjuntos frecuentes con este soporte.")
 
-    # --- Exportar todo en ZIP (Opcional) ---
-    if st.checkbox("📥 Descargar todo en carpeta comprimida"):
-        def zip_files(files):
-            import zipfile
-            import tempfile
-            temp_dir = tempfile.mkdtemp()
-            zip_path = f"{temp_dir}/resultados.zip"
-            with zipfile.ZipFile(zip_path, 'w') as zipf:
-                for filename, df in files.items():
-                    path = f"{temp_dir}/{filename}"
-                    df.to_excel(path, index=False)
-                    zipf.write(path, arcname=filename)
-            return zip_path
+        # --- Sección 3: Análisis de Sentimiento ---
+        st.header("🗣️ Análisis de Sentimiento en Reseñas")
+        if st.checkbox("Ejecutar análisis de sentimiento", key="sentiment_checkbox"):
+            if 'review_text' in df_reseñas.columns:
+                vectorizer = TfidfVectorizer(stop_words='english')
+                X_train = vectorizer.fit_transform(df_reseñas['review_text'])
+                y_train = df_reseñas['sentiment']
 
-        files_to_zip = {
-            "segmentacion.xlsx": customer_features,
-            "reseñas_clasificadas.xlsx": df_reseñas,
-            "reglas.xlsx": rules
-        }
-        zip_path = zip_files(files_to_zip)
-        with open(zip_path, "rb") as f:
-            st.download_button("Descargar Todo (ZIP)", data=f, file_name="resultados_analisis.zip", mime="application/zip")
+                model = MultinomialNB()
+                model.fit(X_train, y_train)
 
+                example_text = st.text_input("Prueba con tu propia reseña:")
+                if example_text:
+                    prediction = model.predict(vectorizer.transform([example_text]))[0]
+                    st.success(f"Sentimiento predicho: **{prediction}**")
+            else:
+                st.warning("El archivo de reseñas debe contener la columna 'review_text'.")
+
+    except Exception as e:
+        st.error(f"Error al procesar los datos: {str(e)}")
 else:
-    st.info("Por favor, sube ambos archivos Excel: uno de transacciones y otro de reseñas.")
-
+    st.info("Por favor, suba ambos archivos Excel: transacciones y reseñas.")
 
 # Footer
-st.markdown(
-    """
-    <div style='text-align: center; font-size: 12px; margin-top: 50px; color: #666;'>
-        ©️ 2025 Diseñado por <b>Wilton Torvisco</b> | 
-        <a href='https://github.com/Wil2024' target='_blank'>GitHub</a> | 
-        Todos los derechos reservados.
-    </div>
-    """,
-    unsafe_allow_html=True
-)
+st.markdown("""
+<div style='text-align: center; font-size: 12px; margin-top: 50px; color: #666;'>
+    ©️ 2025 Diseñado por <b>Wilton Torvisco</b> | 
+    Todos los derechos reservados.
+</div>
+""", unsafe_allow_html=True)
